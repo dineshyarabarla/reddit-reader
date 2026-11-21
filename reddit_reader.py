@@ -109,6 +109,7 @@ def build_parser():
     p = argparse.ArgumentParser(prog="reddit-reader", description=__doc__)
     p.add_argument("--out", help="also append JSON lines to this file")
     sp = p.add_subparsers(dest="cmd", required=True)
+    sp.add_parser("tool", help="read {name, arguments} JSON from stdin, print the tool result")
     t = sp.add_parser("top")
     t.add_argument("subreddit")
     t.add_argument("--time", choices=["day", "week", "month"], default="week")
@@ -124,8 +125,27 @@ def build_parser():
     return p
 
 
+def tool_mode(stdin=sys.stdin):
+    """One JSON request on stdin, one JSON result on stdout. No shell, no argv parsing."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))  # works under python -I
+    import tool_api  # imported here: tool_api imports this module
+
+    try:
+        req = json.loads(stdin.read())
+        if not isinstance(req, dict) or set(req) - {"name", "arguments"}:
+            raise ValueError
+    except ValueError:
+        print(json.dumps({"error": 'expected one JSON object {"name": ..., "arguments": {...}}'}))
+        return 2
+    out = tool_api.call_tool(req.get("name"), req.get("arguments", {}))
+    print(out)
+    return 2 if '"error"' in out[:10] else 0
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.cmd == "tool":
+        return tool_mode()
     try:
         allowed = load_allowlist()
         reddit = make_client()

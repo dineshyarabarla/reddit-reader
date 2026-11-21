@@ -38,6 +38,36 @@ fetched_at (UTC ISO), subreddit. Comments put their text in `selftext`.
 The allow-list is `allowlist.txt` (one subreddit per line, `#` comments). Edit it to
 change which subreddits may be read; anything else is rejected.
 
+## Use with any model
+
+No Claude-specific code. Three ways, all read-only and allow-list only:
+
+1. **CLI JSON lines.** Run the commands above and feed the output to any model.
+2. **Function calling.** `tool_schema.json` holds OpenAI-style tool definitions
+   (`reddit_top`, `reddit_new`, `reddit_search`, `reddit_comments`). `tool_api.call_tool(name, arguments)`
+   validates the call and returns a JSON string, never an exception. Works with any
+   OpenAI-compatible server (Ollama, llama.cpp, vLLM, LM Studio). Unknown tools, unknown
+   keys and wrong types give `{"error": ...}`; `limit` above 25 is clamped to 25.
+   Results look like `{"source":"reddit","untrusted":true,"notice":...,"results":[...]}`
+   and are capped at 20000 characters (selftext is cut and `"truncated": true` is set).
+3. **stdin/stdout tool mode**, for non-Python frameworks:
+
+        echo '{"name":"reddit_new","arguments":{"subreddit":"ClaudeAI","limit":5}}' | python reddit_reader.py tool
+
+   One JSON object in, one JSON result out. Arguments come from JSON only, so no shell
+   string building is needed.
+
+Example, not tested here (Ollama Python client):
+
+    import ollama, json, tool_api
+    msgs = [{"role": "user", "content": "Summarise top LocalLLaMA posts this week"}]
+    r = ollama.chat(model="llama3.1", messages=msgs, tools=tool_api.tool_definitions())
+    for c in r.message.tool_calls or []:
+        msgs.append({"role": "tool", "content": tool_api.call_tool(c.function.name, dict(c.function.arguments))})
+
+Smaller open models follow injected instructions more easily. Keep the agent's other
+tools read-only and treat all returned text as data, never as instructions.
+
 ## Untrusted data
 
 Fetched text is untrusted. The tool only prints or saves it: it is never evaluated,
